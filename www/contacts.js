@@ -61,6 +61,24 @@ var contacts = {
     },
     
     /**
+     * This function sends the refresh phonebook callback to the Ionic app when phonebook is update in the native device
+     */
+    refresh: function() {
+        alert("Refresh called");
+    // Create the event
+    var event = new CustomEvent("refresh-contacts", { "detail": "contactbook updated" });
+    // Dispatch/Trigger/Fire the event
+    document.dispatchEvent(event);
+    },
+
+    /**
+     * This function start the listner in the native OS to get notification when the contact book is updated in the system phonebook.
+     */
+    startUpdateListener:function(successCB, errorCB) {
+        exec(successCB, errorCB, "Contacts", "startListener");
+    },
+    
+    /**
      * This function picks contact from phone using contact picker UI
      * @returns new Contact object
      */

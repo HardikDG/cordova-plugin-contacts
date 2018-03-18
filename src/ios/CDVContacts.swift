@@ -26,6 +26,7 @@ import Foundation
 import Contacts
 import ContactsUI
 import UIKit
+import WebKit
 
 class CDVContactsPicker: CNContactPickerViewController {
     var callbackId: String = ""
@@ -41,6 +42,7 @@ class CDVNewContactsController: CNContactViewController {
 @objc(CDVContacts) class CDVContacts: CDVPlugin, CNContactViewControllerDelegate, CNContactPickerDelegate {
 //    var status: CNAuthorizationStatus = CNContactStore.authorizationStatus(for: .contacts)
     
+    var hasRegisteredForNotifications = false;
     static let allContactKeys: [CNKeyDescriptor] = [CNContactIdentifierKey as CNKeyDescriptor,
                                              CNContactNicknameKey as CNKeyDescriptor,
                                              CNContactGivenNameKey as CNKeyDescriptor,
@@ -195,6 +197,66 @@ class CDVNewContactsController: CNContactViewController {
         viewController.present(pickerController, animated: true) {() -> Void in }
     }
     
+    func checkContactsAccess(_ completion: @escaping (_ accessGranted: Bool) -> Void) {
+        switch CNContactStore.authorizationStatus(for: .contacts) {
+            // Access was granted.
+            
+        case .authorized:
+            registerForCNContactStoreDidChangeNotification()
+            completion(true)
+        case .notDetermined:
+            // CNContactStore().requestAccess(for: .contacts, completionHandler: {(granted, error) in
+            //     self.registerForCNContactStoreDidChangeNotification()
+            //     completion(granted)
+            // })
+            completion(false)
+            // Access was denied.
+        case .restricted,.denied:
+            completion(false)
+        }
+        
+    }
+    
+    /// Register for CNContactStoreDidChangeNotification notifications.
+    fileprivate func registerForCNContactStoreDidChangeNotification() {
+        
+        // Don't register if we have already done so.
+        if !hasRegisteredForNotifications {
+            NotificationCenter.default.removeObserver(self, name: NSNotification.Name.CNContactStoreDidChange, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(CDVContacts.storeDidChange(_:)), name: NSNotification.Name.CNContactStoreDidChange, object: nil)
+            hasRegisteredForNotifications = true
+        }
+    }
+    
+    
+    /// Stop listening for CNContactStoreDidChangeNotification notifications.
+    fileprivate func unregisterForCNContactStoreDidChangeNotification() {
+        // Only unregister an existing notification registration.
+        if hasRegisteredForNotifications {
+            NotificationCenter.default.removeObserver(self, name: NSNotification.Name.CNContactStoreDidChange, object: nil)
+            hasRegisteredForNotifications = false
+        }
+    }
+    
+    /// Notifies listeners that changes have occured in the contact store.
+    @objc func storeDidChange(_ notification: Notification) {
+        let appDelegate  = UIApplication.shared.delegate
+        
+        for view:UIView in (appDelegate!.window??.rootViewController?.view.subviews)! {
+            if view .isKind(of:WKWebView.self){
+                let webview = view as! WKWebView
+                webview.evaluateJavaScript("navigator.contacts.refresh()", completionHandler: nil)
+            }
+        }
+    }
+    
+    func startListener(_ command: CDVInvokedUrlCommand)  {
+        self.commandDelegate.send(CDVPluginResult(status: CDVCommandStatus_OK), callbackId: command.callbackId)
+        checkContactsAccess { (accessGranted: Bool) in
+        }
+    }
+    
+    
     func pickContact(_ command: CDVInvokedUrlCommand) {
         checkContactPermission()
         let newCommand = CDVInvokedUrlCommand(arguments: command.arguments, callbackId: command.callbackId, className: command.className, methodName: command.methodName)
@@ -312,6 +374,7 @@ class CDVNewContactsController: CNContactViewController {
     
     func search(_ command: CDVInvokedUrlCommand) {
         checkContactPermission()
+        registerForCNContactStoreDidChangeNotification()
         let callbackId: String = command.callbackId
         let commandFields = command.argument(at: 0) as? [Any]
         let findOptions = command.argument(at: 1, withDefault: [AnyHashable: Any]()) as? [AnyHashable: Any]
